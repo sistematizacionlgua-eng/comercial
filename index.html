@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Registro de Ventas y Crecimiento</title>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+        // Configuración de Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBiS8fiw2O0BYMnGty5z-HKpzDfML8S5IU",
+            authDomain: "comercial-c4715.firebaseapp.com",
+            projectId: "comercial-c4715",
+            storageBucket: "comercial-c4715.firebasestorage.app",
+            messagingSenderId: "981570371516",
+            appId: "1:981570371516:web:ab77e2d0b3306594eab5b9"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // Exponer globalmente para el script no modular
+        window.firebaseApp = app;
+        window.db = db;
+        window.auth = auth;
+        window.firestore = { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy };
+        window.authFunctions = { signInAnonymously, onAuthStateChanged };
+        
+        // Disparar evento cuando Firebase esté listo
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #f0f2f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #1a237e;
+            margin-bottom: 20px;
+        }
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #1a237e;
+        }
+        .tab {
+            padding: 12px 24px;
+            background: #e0e0e0;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px 8px 0 0;
+            transition: background 0.3s;
+        }
+        .tab:hover {
+            background: #c5cae9;
+        }
+        .tab.active {
+            background: #1a237e;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 0 0 12px 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .filters label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .filters select, .filters input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 6px 8px;
+            text-align: center;
+        }
+        th {
+            background: #1a237e;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        th.dia-col {
+            min-width: 45px;
+        }
+        td input {
+            width: 100%;
+            border: none;
+            text-align: center;
+            font-size: 13px;
+            padding: 4px;
+            background: transparent;
+        }
+        td input:focus {
+            outline: 2px solid #1a237e;
+            background: #e8eaf6;
+        }
+        tr.corte {
+            background: #ffebee !important;
+        }
+        tr.corte td {
+            color: #c62828;
+            font-weight: bold;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        .btn-primary {
+            background: #1a237e;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #283593;
+        }
+        .btn-danger {
+            background: #c62828;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #b71c1c;
+        }
+        .btn-success {
+            background: #2e7d32;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #1b5e20;
+        }
+        .btn-warning {
+            background: #ef6c00;
+            color: white;
+        }
+        .btn-warning:hover {
+            background: #e65100;
+        }
+        .btn-sm {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .day-name {
+            font-size: 10px;
+            color: #666;
+            display: block;
+        }
+        .chart-container {
+            position: relative;
+            height: 500px;
+            margin-top: 20px;
+        }
+        .status-msg {
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+        .status-msg.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .status-msg.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .status-msg.info {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            font-size: 13px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #666;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1a237e;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .table-wrapper {
+            overflow-x: auto;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .meta-cell {
+            background: #fff3e0;
+        }
+        .total-row {
+            background: #e8eaf6;
+            font-weight: bold;
+        }
+        .total-row td {
+            border-top: 2px solid #1a237e;
+        }
+        @media (max-width: 768px) {
+            .filters {
+                grid-template-columns: 1fr;
+            }
+            .tab {
+                padding: 10px 14px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Sistema de Registro de Ventas y Crecimiento</h1>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="registro">📋 Registro Diario</button>
+            <button class="tab" data-tab="grafica">📈 Gráfica</button>
+        </div>
+
+        <!-- TAB REGISTRO -->
+        <div id="tab-registro" class="tab-content active">
+            <div id="loadingRegistro" class="loading">
+                <div class="spinner"></div>
+                Cargando datos...
+            </div>
+            <div id="contenidoRegistro" style="display:none;">
+                <div class="filters">
+                    <div>
+                        <label>Año</label>
+                        <select id="regAnio"></select>
+                    </div>
+                    <div>
+                        <label>Ciudad</label>
+                        <select id="regCiudad"></select>
+                    </div>
+                    <div>
+                        <label>Centro de Operaciones</label>
+                        <select id="regCentro"></select>
+                    </div>
+                    <div>
+                        <label>Mes</label>
+                        <select id="regMes"></select>
+                    </div>
+                </div>
+
+                <div class="table-wrapper">
+                    <table id="tablaRegistro">
+                        <thead>
+                            <tr id="headerRow">
+                                <th class="dia-col">Día</th>
+                                <th>Total</th>
+                                <th>Vtas.Nva</th>
+                                <th>Reconex.</th>
+                                <th>Mig.</th>
+                                <th>C.Per.</th>
+                                <th>Crecimiento</th>
+                                <th>Meta</th>
+                                <th>Corte</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyRegistro"></tbody>
+                        <tfoot id="tfootRegistro"></tfoot>
+                    </table>
+                </div>
+
+                <div class="actions">
+                    <button class="btn btn-primary" id="btnGuardar">💾 Guardar Datos</button>
+                    <button class="btn btn-warning" id="btnRecargar">🔄 Recargar</button>
+                </div>
+                <div id="statusRegistro" class="status-msg info" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- TAB GRAFICA -->
+        <div id="tab-grafica" class="tab-content">
+            <div id="loadingGrafica" class="loading">
+                <div class="spinner"></div>
+                Cargando gráfica...
+            </div>
+            <div id="contenidoGrafica" style="display:none;">
+                <div class="filters">
+                    <div>
+                        <label>Año</label>
+                        <select id="grafAnio"></select>
+                    </div>
+                    <div>
+                        <label>Ciudad</label>
+                        <select id="grafCiudad"></select>
+                    </div>
+                    <div>
+                        <label>Centro de Operaciones</label>
+                        <select id="grafCentro"></select>
+                    </div>
+                    <div>
+                        <label>Dato a Visualizar</label>
+                        <select id="grafDato">
+                            <option value="ventas">Ventas (Total)</option>
+                            <option value="reconexiones">Reconexiones</option>
+                            <option value="migraciones">Migraciones</option>
+                            <option value="crecimiento">Crecimiento (vs Meta)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="legend" id="legendGrafica"></div>
+                <div class="chart-container">
+                    <canvas id="miGrafica"></canvas>
+                </div>
+
+                <div class="actions">
+                    <button class="btn btn-primary" id="btnActualizarGrafica">🔄 Actualizar Gráfica</button>
+                </div>
+                <div id="statusGrafica" class="status-msg info" style="display:none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script principal (no modular) -->
+    <script>
+        // ============================================================
+        // CONFIGURACIÓN Y ESTADO GLOBAL
+        // ============================================================
+        const CIUDADES = {
+            'Caracas': ['Centro 1', 'Centro 2', 'Centro 3', 'Centro 4', 'Centro 5', 'Centro 6', 'Centro 7', 'Centro 8', 'Centro 9'],
+            'Guarenas': ['Centro 1', 'Centro 2', 'Centro 3'],
+            'Los Teques': ['Centro 1', 'Centro 2', 'Centro 3'],
+            'Charallave': ['Centro 1', 'Centro 2', 'Centro 3'],
+            'La Guaira': ['Centro 1', 'Centro 2', 'Centro 3']
+        };
+
+        const MESES = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ];
+
+        const ANIOS = [2024, 2025, 2026, 2027, 2028];
+
+        let db, auth, firestoreFns, authFns;
+        let datosActuales = []; // Array de objetos {dia, total, ventasNva, reconexiones, migraciones, clientesPerdidos, crecimiento, meta, corte}
+        let chartInstance = null;
+        let firebaseListo = false;
+
+        // ============================================================
+        // ESPERAR A FIREBASE
+        // ============================================================
+        window.addEventListener('firebaseReady', () => {
+            firebaseListo = true;
+            db = window.db;
+            auth = window.auth;
+            firestoreFns = window.firestore;
+            authFns = window.authFunctions;
+            console.log('✅ Firebase listo');
+            
+            // Autenticación anónima
+            authFns.signInAnonymously(auth).catch(err => {
+                console.error('Error autenticación anónima:', err);
+                mostrarStatus('registro', 'Error de autenticación. Verifica las reglas de Firestore.', 'error');
+            });
+
+            authFns.onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    console.log('✅ Usuario autenticado:', user.uid);
+                    inicializarApp();
+                }
+            });
+        });
+
+        // ============================================================
+        // INICIALIZACIÓN DE LA APP
+        // ============================================================
+        function inicializarApp() {
+            // Poblar selects de filtros
+            poblarSelects('regAnio', ANIOS);
+            poblarSelects('regCiudad', Object.keys(CIUDADES));
+            poblarSelects('regMes', MESES.map((m, i) => ({ value: i + 1, label: m })));
+
+            poblarSelects('grafAnio', ANIOS);
+            poblarSelects('grafCiudad', Object.keys(CIUDADES));
+
+            // Eventos de cambio
+            document.getElementById('regCiudad').addEventListener('change', actualizarCentrosRegistro);
+            document.getElementById('grafCiudad').addEventListener('change', actualizarCentrosGrafica);
+            document.getElementById('regAnio').addEventListener('change', cargarDatosRegistro);
+            document.getElementById('regCentro').addEventListener('change', cargarDatosRegistro);
+            document.getElementById('regMes').addEventListener('change', cargarDatosRegistro);
+
+            document.getElementById('btnGuardar').addEventListener('click', guardarDatos);
+            document.getElementById('btnRecargar').addEventListener('click', cargarDatosRegistro);
+            document.getElementById('btnActualizarGrafica').addEventListener('click', actualizarGrafica);
+
+            // Inicializar valores por defecto
+            actualizarCentrosRegistro();
+            actualizarCentrosGrafica();
+
+            // Cambio de pestañas
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                    
+                    if (tab.dataset.tab === 'grafica') {
+                        setTimeout(() => actualizarGrafica(), 100);
+                    }
+                });
+            });
+
+            // Cargar datos iniciales
+            cargarDatosRegistro();
+        }
+
+        // ============================================================
+        // UTILIDADES DE SELECTS
+        // ============================================================
+        function poblarSelects(id, items) {
+            const select = document.getElementById(id);
+            if (!select) return;
+            select.innerHTML = '';
+            items.forEach(item => {
+                const option = document.createElement('option');
+                if (typeof item === 'object') {
+                    option.value = item.value;
+                    option.textContent = item.label;
+                } else {
+                    option.value = item;
+                    option.textContent = item;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        function actualizarCentrosRegistro() {
+            const ciudad = document.getElementById('regCiudad').value;
+            const centros = CIUDADES[ciudad] || [];
+            poblarSelects('regCentro', centros);
+            cargarDatosRegistro();
+        }
+
+        function actualizarCentrosGrafica() {
+            const ciudad = document.getElementById('grafCiudad').value;
+            const centros = CIUDADES[ciudad] || [];
+            poblarSelects('grafCentro', centros);
+        }
+
+        // ============================================================
+        // CONSTRUCCIÓN DE LA CLAVE DEL DOCUMENTO
+        // ============================================================
+        function construirDocId(anio, ciudad, centro, mes) {
+            // Formato: registro_2024_Caracas_Centro1_1
+            const ciudadLimpia = ciudad.replace(/\s+/g, '_');
+            const centroLimpio = centro.replace(/\s+/g, '_');
+            return `registro_${anio}_${ciudadLimpia}_${centroLimpio}_${mes}`;
+        }
+
+        // ============================================================
+        // CARGAR DATOS DE FIRESTORE
+        // ============================================================
+        async function cargarDatosRegistro() {
+            if (!firebaseListo || !db) {
+                console.warn('Firebase no está listo aún');
+                return;
+            }
+
+            const anio = document.getElementById('regAnio').value;
+            const ciudad = document.getElementById('regCiudad').value;
+            const centro = document.getElementById('regCentro').value;
+            const mes = document.getElementById('regMes').value;
+
+            if (!anio || !ciudad || !centro || !mes) return;
+
+            mostrarLoading('registro', true);
+
+            const docId = construirDocId(anio, ciudad, centro, mes);
+            const docRef = firestoreFns.doc(db, 'registros', docId);
+
+            try {
+                const docSnap = await firestoreFns.getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    datosActuales = data.dias || [];
+                    console.log('✅ Datos cargados:', datosActuales.length, 'días');
+                } else {
+                    // No existe, crear estructura vacía
+                    datosActuales = generarEstructuraVacia(anio, mes);
+                    console.log('📝 Documento nuevo, estructura vacía generada');
+                }
+                renderizarTabla(anio, mes);
+                mostrarStatus('registro', 'Datos cargados correctamente', 'success');
+            } catch (error) {
+                console.error('Error al cargar:', error);
+                mostrarStatus('registro', 'Error al cargar datos: ' + error.message, 'error');
+                datosActuales = generarEstructuraVacia(anio, mes);
+                renderizarTabla(anio, mes);
+            } finally {
+                mostrarLoading('registro', false);
+            }
+        }
+
+        function generarEstructuraVacia(anio, mes) {
+            const diasEnMes = new Date(anio, mes, 0).getDate();
+            const dias = [];
+            for (let i = 1; i <= diasEnMes; i++) {
+                dias.push({
+                    dia: i,
+                    total: 0,
+                    ventasNva: 0,
+                    reconexiones: 0,
+                    migraciones: 0,
+                    clientesPerdidos: 0,
+                    crecimiento: 0,
+                    meta: 0,
+                    corte: false
+                });
+            }
+            return dias;
+        }
+
+        // ============================================================
+        // RENDERIZAR TABLA
+        // ============================================================
+        function renderizarTabla(anio, mes) {
+            const thead = document.getElementById('headerRow');
+            const tbody = document.getElementById('tbodyRegistro');
+            const tfoot = document.getElementById('tfootRegistro');
+
+            // Encabezado con nombres de días
+            const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+            let headerHTML = '<th class="dia-col">Día</th>';
+            datosActuales.forEach(d => {
+                const fecha = new Date(anio, mes - 1, d.dia);
+                const nombreDia = diasSemana[fecha.getDay()];
+                headerHTML += `<th class="dia-col">${d.dia}<span class="day-name">${nombreDia}</span></th>`;
+            });
+            headerHTML += '<th>Total</th><th>Vtas.Nva</th><th>Reconex.</th><th>Mig.</th><th>C.Per.</th><th>Crecimiento</th><th>Meta</th><th>Corte</th>';
+            thead.innerHTML = headerHTML;
+
+            // Cuerpo de la tabla (cada fila es un campo)
+            const campos = [
+                { key: 'total', label: 'Total' },
+                { key: 'ventasNva', label: 'Vtas.Nva' },
+                { key: 'reconexiones', label: 'Reconex.' },
+                { key: 'migraciones', label: 'Mig.' },
+                { key: 'clientesPerdidos', label: 'C.Per.' },
+                { key: 'crecimiento', label: 'Crecimiento' },
+                { key: 'meta', label: 'Meta' }
+            ];
+
+            let tbodyHTML = '';
+            campos.forEach(campo => {
+                tbodyHTML += `<tr><td><strong>${campo.label}</strong></td>`;
+                datosActuales.forEach((d, idx) => {
+                    const valor = d[campo.key] !== undefined ? d[campo.key] : 0;
+                    tbodyHTML += `<td><input type="number" value="${valor}" data-idx="${idx}" data-key="${campo.key}" class="input-dato"></td>`;
+                });
+                // Totales de la fila
+                const totalFila = datosActuales.reduce((sum, d) => sum + (Number(d[campo.key]) || 0), 0);
+                tbodyHTML += `<td class="total-row"><strong>${totalFila}</strong></td></tr>`;
+            });
+
+            // Fila de Corte
+            tbodyHTML += `<tr><td><strong>Corte</strong></td>`;
+            datosActuales.forEach((d, idx) => {
+                tbodyHTML += `<td><input type="checkbox" ${d.corte ? 'checked' : ''} data-idx="${idx}" data-key="corte" class="input-corte"></td>`;
+            });
+            tbodyHTML += `<td colspan="9"></td></tr>`;
+
+            tbody.innerHTML = tbodyHTML;
+
+            // Footer con totales generales
+            let tfootHTML = '<tr class="total-row"><td><strong>TOTAL</strong></td>';
+            // Total general por día (suma de todos los campos excepto meta y corte)
+            datosActuales.forEach(d => {
+                const totalDia = (Number(d.total) || 0) + (Number(d.ventasNva) || 0) + 
+                                (Number(d.reconexiones) || 0) + (Number(d.migraciones) || 0) + 
+                                (Number(d.clientesPerdidos) || 0) + (Number(d.crecimiento) || 0);
+                tfootHTML += `<td><strong>${totalDia}</strong></td>`;
+            });
+            // Totales por columna
+            const totalTotal = datosActuales.reduce((s, d) => s + (Number(d.total) || 0), 0);
+            const totalVentas = datosActuales.reduce((s, d) => s + (Number(d.ventasNva) || 0), 0);
+            const totalRecon = datosActuales.reduce((s, d) => s + (Number(d.reconexiones) || 0), 0);
+            const totalMig = datosActuales.reduce((s, d) => s + (Number(d.migraciones) || 0), 0);
+            const totalPerd = datosActuales.reduce((s, d) => s + (Number(d.clientesPerdidos) || 0), 0);
+            const totalCrec = datosActuales.reduce((s, d) => s + (Number(d.crecimiento) || 0), 0);
+            const totalMeta = datosActuales.reduce((s, d) => s + (Number(d.meta) || 0), 0);
+            tfootHTML += `<td><strong>${totalTotal}</strong></td>`;
+            tfootHTML += `<td><strong>${totalVentas}</strong></td>`;
+            tfootHTML += `<td><strong>${totalRecon}</strong></td>`;
+            tfootHTML += `<td><strong>${totalMig}</strong></td>`;
+            tfootHTML += `<td><strong>${totalPerd}</strong></td>`;
+            tfootHTML += `<td><strong>${totalCrec}</strong></td>`;
+            tfootHTML += `<td><strong>${totalMeta}</strong></td>`;
+            tfootHTML += `<td></td></tr>`;
+            tfoot.innerHTML = tfootHTML;
+
+            // Aplicar estilos de corte
+            aplicarEstilosCorte(anio, mes);
+
+            // Eventos
+            document.querySelectorAll('.input-dato').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.idx);
+                    const key = e.target.dataset.key;
+                    datosActuales[idx][key] = Number(e.target.value) || 0;
+                    // Recalcular totales sin re-renderizar toda la tabla
+                    actualizarTotales(anio, mes);
+                });
+            });
+
+            document.querySelectorAll('.input-corte').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.idx);
+                    datosActuales[idx].corte = e.target.checked;
+                    aplicarEstilosCorte(anio, mes);
+                });
+            });
+        }
+
+        function aplicarEstilosCorte(anio, mes) {
+            const filas = document.querySelectorAll('#tbodyRegistro tr');
+            // Encontrar la fila de Corte (última)
+            const filaCorte = filas[filas.length - 1];
+            const celdasCorte = filaCorte.querySelectorAll('td');
+            
+            // Aplicar clase a las columnas de días que son corte
+            datosActuales.forEach((d, idx) => {
+                if (d.corte) {
+                    // Marcar todas las filas en esa columna
+                    filas.forEach(fila => {
+                        const celdas = fila.querySelectorAll('td');
+                        if (celdas[idx + 1]) {
+                            celdas[idx + 1].style.background = '#ffebee';
+                            celdas[idx + 1].style.color = '#c62828';
+                            celdas[idx + 1].style.fontWeight = 'bold';
+                        }
+                    });
+                } else {
+                    filas.forEach(fila => {
+                        const celdas = fila.querySelectorAll('td');
+                        if (celdas[idx + 1]) {
+                            celdas[idx + 1].style.background = '';
+                            celdas[idx + 1].style.color = '';
+                            celdas[idx + 1].style.fontWeight = '';
+                        }
+                    });
+                }
+            });
+        }
+
+        function actualizarTotales(anio, mes) {
+            // Recalcular solo los totales de la fila (última columna de cada fila de datos)
+            const filas = document.querySelectorAll('#tbodyRegistro tr');
+            const campos = ['total', 'ventasNva', 'reconexiones', 'migraciones', 'clientesPerdidos', 'crecimiento', 'meta'];
+            
+            filas.forEach((fila, filaIdx) => {
+                if (filaIdx < campos.length) {
+                    const celdas = fila.querySelectorAll('td');
+                    const key = campos[filaIdx];
+                    const suma = datosActuales.reduce((s, d) => s + (Number(d[key]) || 0), 0);
+                    // El último td es el total de la fila
+                    if (celdas[celdas.length - 1]) {
+                        celdas[celdas.length - 1].innerHTML = `<strong>${suma}</strong>`;
+                    }
+                }
+            });
+
+            // Recalcular footer
+            const tfoot = document.getElementById('tfootRegistro');
+            const totalTotal = datosActuales.reduce((s, d) => s + (Number(d.total) || 0), 0);
+            const totalVentas = datosActuales.reduce((s, d) => s + (Number(d.ventasNva) || 0), 0);
+            const totalRecon = datosActuales.reduce((s, d) => s + (Number(d.reconexiones) || 0), 0);
+            const totalMig = datosActuales.reduce((s, d) => s + (Number(d.migraciones) || 0), 0);
+            const totalPerd = datosActuales.reduce((s, d) => s + (Number(d.clientesPerdidos) || 0), 0);
+            const totalCrec = datosActuales.reduce((s, d) => s + (Number(d.crecimiento) || 0), 0);
+            const totalMeta = datosActuales.reduce((s, d) => s + (Number(d.meta) || 0), 0);
+            
+            const tds = tfoot.querySelectorAll('td');
+            // Los últimos 7 td son los totales generales
+            const offset = tds.length - 7;
+            if (tds[offset]) tds[offset].innerHTML = `<strong>${totalTotal}</strong>`;
+            if (tds[offset + 1]) tds[offset + 1].innerHTML = `<strong>${totalVentas}</strong>`;
+            if (tds[offset + 2]) tds[offset + 2].innerHTML = `<strong>${totalRecon}</strong>`;
+            if (tds[offset + 3]) tds[offset + 3].innerHTML = `<strong>${totalMig}</strong>`;
+            if (tds[offset + 4]) tds[offset + 4].innerHTML = `<strong>${totalPerd}</strong>`;
+            if (tds[offset + 5]) tds[offset + 5].innerHTML = `<strong>${totalCrec}</strong>`;
+            if (tds[offset + 6]) tds[offset + 6].innerHTML = `<strong>${totalMeta}</strong>`;
+        }
+
+        // ============================================================
+        // GUARDAR DATOS EN FIRESTORE
+        // ============================================================
+        async function guardarDatos() {
+            if (!firebaseListo || !db) {
+                mostrarStatus('registro', 'Firebase no está listo', 'error');
+                return;
+            }
+
+            const anio = document.getElementById('regAnio').value;
+            const ciudad = document.getElementById('regCiudad').value;
+            const centro = document.getElementById('regCentro').value;
+            const mes = document.getElementById('regMes').value;
+
+            const docId = construirDocId(anio, ciudad, centro, mes);
+            
+            // Recolectar datos actuales de los inputs (por si acaso)
+            document.querySelectorAll('.input-dato').forEach(input => {
+                const idx = parseInt(input.dataset.idx);
+                const key = input.dataset.key;
+                if (datosActuales[idx]) {
+                    datosActuales[idx][key] = Number(input.value) || 0;
+                }
+            });
+            document.querySelectorAll('.input-corte').forEach(input => {
+                const idx = parseInt(input.dataset.idx);
+                if (datosActuales[idx]) {
+                    datosActuales[idx].corte = input.checked;
+                }
+            });
+
+            const data = {
+                anio: Number(anio),
+                ciudad: ciudad,
+                centro: centro,
+                mes: Number(mes),
+                mesNombre: MESES[Number(mes) - 1],
+                dias: datosActuales,
+                fechaActualizacion: new Date().toISOString()
+            };
+
+            try {
+                const docRef = firestoreFns.doc(db, 'registros', docId);
+                await firestoreFns.setDoc(docRef, data);
+                mostrarStatus('registro', '✅ Datos guardados correctamente', 'success');
+            } catch (error) {
+                console.error('Error al guardar:', error);
+                mostrarStatus('registro', '❌ Error al guardar: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================================
+        // GRÁFICA
+        // ============================================================
+        async function actualizarGrafica() {
+            if (!firebaseListo || !db) return;
+
+            const anio = document.getElementById('grafAnio').value;
+            const ciudad = document.getElementById('grafCiudad').value;
+            const centro = document.getElementById('grafCentro').value;
+            const dato = document.getElementById('grafDato').value;
+
+            if (!anio || !ciudad || !centro) return;
+
+            mostrarLoading('grafica', true);
+
+            // Cargar todos los meses del año para ese centro
+            const mesesData = [];
+            for (let m = 1; m <= 12; m++) {
+                const docId = construirDocId(anio, ciudad, centro, m);
+                const docRef = firestoreFns.doc(db, 'registros', docId);
+                try {
+                    const docSnap = await firestoreFns.getDoc(docRef);
+                    if (docSnap.exists()) {
+                        mesesData.push(docSnap.data());
+                    } else {
+                        mesesData.push(null);
+                    }
+                } catch (e) {
+                    console.warn('Error cargando mes', m, e);
+                    mesesData.push(null);
+                }
+            }
+
+            renderizarGrafica(mesesData, dato);
+            mostrarLoading('grafica', false);
+        }
+
+        function renderizarGrafica(mesesData, tipoDato) {
+            const ctx = document.getElementById('miGrafica').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            const labels = MESES;
+            let datasets = [];
+            let titulo = '';
+
+            if (tipoDato === 'ventas') {
+                titulo = 'Ventas (Total)';
+                const datos = mesesData.map(m => {
+                    if (!m) return 0;
+                    return m.dias.reduce((s, d) => s + (Number(d.total) || 0), 0);
+                });
+                datasets.push({
+                    label: 'Ventas Totales',
+                    data: datos,
+                    backgroundColor: 'rgba(26, 35, 126, 0.6)',
+                    borderColor: '#1a237e',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3
+                });
+            } else if (tipoDato === 'reconexiones') {
+                titulo = 'Reconexiones';
+                const datos = mesesData.map(m => {
+                    if (!m) return 0;
+                    return m.dias.reduce((s, d) => s + (Number(d.reconexiones) || 0), 0);
+                });
+                datasets.push({
+                    label: 'Reconexiones',
+                    data: datos,
+                    backgroundColor: 'rgba(46, 125, 50, 0.6)',
+                    borderColor: '#2e7d32',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3
+                });
+            } else if (tipoDato === 'migraciones') {
+                titulo = 'Migraciones';
+                const datos = mesesData.map(m => {
+                    if (!m) return 0;
+                    return m.dias.reduce((s, d) => s + (Number(d.migraciones) || 0), 0);
+                });
+                datasets.push({
+                    label: 'Migraciones',
+                    data: datos,
+                    backgroundColor: 'rgba(239, 108, 0, 0.6)',
+                    borderColor: '#ef6c00',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3
+                });
+            } else if (tipoDato === 'crecimiento') {
+                titulo = 'Crecimiento vs Meta';
+                const datosCrecimiento = [];
+                const datosMeta = [];
+                mesesData.forEach(m => {
+                    if (!m) {
+                        datosCrecimiento.push(0);
+                        datosMeta.push(0);
+                    } else {
+                        const crec = m.dias.reduce((s, d) => s + (Number(d.crecimiento) || 0), 0);
+                        const meta = m.dias.length > 0 ? (Number(m.dias[0].meta) || 0) : 0;
+                        datosCrecimiento.push(crec);
+                        datosMeta.push(meta);
+                    }
+                });
+                datasets.push({
+                    label: 'Crecimiento',
+                    data: datosCrecimiento,
+                    backgroundColor: 'rgba(26, 35, 126, 0.6)',
+                    borderColor: '#1a237e',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3
+                });
+                datasets.push({
+                    label: 'Meta',
+                    data: datosMeta,
+                    backgroundColor: 'rgba(198, 40, 40, 0.6)',
+                    borderColor: '#c62828',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.3
+                });
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${titulo} - ${document.getElementById('grafCiudad').value} - ${document.getElementById('grafCentro').value} (${document.getElementById('grafAnio').value})`,
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        legend: {
+                            position: 'top',
+                            labels: { font: { size: 13 } }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Valor' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Mes' }
+                        }
+                    }
+                }
+            });
+
+            // Leyenda personalizada
+            const legendDiv = document.getElementById('legendGrafica');
+            legendDiv.innerHTML = datasets.map(ds => `
+                <div class="legend-item">
+                    <div class="legend-color" style="background:${ds.borderColor};"></div>
+                    <span>${ds.label}</span>
+                </div>
+            `).join('');
+        }
+
+        // ============================================================
+        // UTILIDADES DE UI
+        // ============================================================
+        function mostrarLoading(tab, mostrar) {
+            if (tab === 'registro') {
+                document.getElementById('loadingRegistro').style.display = mostrar ? 'block' : 'none';
+                document.getElementById('contenidoRegistro').style.display = mostrar ? 'none' : 'block';
+            } else {
+                document.getElementById('loadingGrafica').style.display = mostrar ? 'block' : 'none';
+                document.getElementById('contenidoGrafica').style.display = mostrar ? 'none' : 'block';
+            }
+        }
+
+        function mostrarStatus(tab, mensaje, tipo) {
+            const el = document.getElementById('status' + (tab === 'registro' ? 'Registro' : 'Grafica'));
+            el.textContent = mensaje;
+            el.className = 'status-msg ' + tipo;
+            el.style.display = 'block';
+            setTimeout(() => {
+                el.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

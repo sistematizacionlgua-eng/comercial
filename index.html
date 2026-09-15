@@ -44,8 +44,6 @@
         .msg.ok { background: #d4edda; color: #155724; display: block; }
         .msg.err { background: #f8d7da; color: #721c24; display: block; }
         .table-wrapper { overflow-x: auto; max-height: 600px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; }
-        .row-actions { display: flex; gap: 4px; justify-content: center; }
-        .small-select { min-width: 80px; padding: 4px; font-size: 0.8rem; }
         h3 { margin: 0 0 12px 0; color: #1e3c72; }
         .section-title { font-size: 1.2rem; font-weight: 700; color: #1e3c72; margin: 24px 0 12px 0; border-bottom: 2px solid #1e3c72; padding-bottom: 6px; }
         .card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
@@ -121,7 +119,6 @@
             <div class="filter-group"><label>Centro de Operaciones</label><select id="add-centro"></select></div>
             <div class="filter-group"><label>Mes</label><select id="add-mes"></select></div>
             <button onclick="cargarTablaEditable()">📂 Cargar Tabla</button>
-            <button class="success" onclick="crearMesNuevo()">➕ Crear Mes Nuevo</button>
         </div>
         <div id="add-msg" class="msg"></div>
         <div id="add-content"></div>
@@ -210,20 +207,26 @@ async function cargarEstructuraDesdeFirestore() {
         } else {
             // Estructura por defecto la primera vez
             estructura = [
-                { ciudad: "Caracas", centros: ["C.O PARAISO","C.O CENTRO","C.O NORTE"] },
-                { ciudad: "Maracaibo", centros: ["C.O BELLAVISTA","C.O CENTRO"] },
-                { ciudad: "Valencia", centros: ["C.O SAN DIEGO","C.O CENTRO"] }
+                { ciudad: "CARACAS", centros: ["C.O PARAISO","C.O CENTRO","C.O NORTE"] },
+                { ciudad: "MARACAIBO", centros: ["C.O BELLAVISTA","C.O CENTRO"] },
+                { ciudad: "VALENCIA", centros: ["C.O SAN DIEGO","C.O CENTRO"] }
             ];
             await guardarEstructura();
         }
     } catch (e) {
         console.error('Error cargando estructura:', e);
-        estructura = [];
+        if (estructura.length === 0) estructura = [];
     }
 }
 
 async function guardarEstructura() {
-    await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).set({ ciudades: estructura });
+    try {
+        await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).set({ ciudades: estructura });
+    } catch (e) {
+        console.error('Error guardando estructura:', e);
+        alert('❌ No se pudo guardar en Firestore.\n\nVerifica las reglas de seguridad:\nFirestore → Reglas → permitir read/write.\n\nDetalle: ' + e.message);
+        throw e;
+    }
 }
 
 // ==================== SELECTS DINÁMICOS ====================
@@ -320,20 +323,29 @@ async function agregarCiudad() {
     if (estructura.some(e => e.ciudad === nombre)) { alert('Esa ciudad ya existe.'); return; }
 
     estructura.push({ ciudad: nombre, centros: [] });
-    await guardarEstructura();
-    input.value = '';
-    renderizarEstructura();
-    llenarTodosLosSelects();
-    mostrarMsg('add-msg', `✅ Ciudad "${nombre}" agregada.`, 'ok');
+    try {
+        await guardarEstructura();
+        input.value = '';
+        renderizarEstructura();
+        llenarTodosLosSelects();
+        mostrarMsg('add-msg', `✅ Ciudad "${nombre}" agregada.`, 'ok');
+    } catch (e) {
+        estructura.pop();
+    }
 }
 
 async function eliminarCiudad(idx) {
     const ciudad = estructura[idx].ciudad;
     if (!confirm(`¿Eliminar la ciudad "${ciudad}" y todos sus centros?`)) return;
+    const backup = JSON.parse(JSON.stringify(estructura));
     estructura.splice(idx, 1);
-    await guardarEstructura();
-    renderizarEstructura();
-    llenarTodosLosSelects();
+    try {
+        await guardarEstructura();
+        renderizarEstructura();
+        llenarTodosLosSelects();
+    } catch (e) {
+        estructura = backup;
+    }
 }
 
 async function agregarCentro(idx) {
@@ -343,18 +355,27 @@ async function agregarCentro(idx) {
     if (estructura[idx].centros.includes(nombre)) { alert('Ese centro ya existe en esta ciudad.'); return; }
 
     estructura[idx].centros.push(nombre);
-    await guardarEstructura();
-    renderizarEstructura();
-    llenarTodosLosSelects();
+    try {
+        await guardarEstructura();
+        renderizarEstructura();
+        llenarTodosLosSelects();
+    } catch (e) {
+        estructura[idx].centros.pop();
+    }
 }
 
 async function eliminarCentro(idxCiudad, idxCentro) {
     const centro = estructura[idxCiudad].centros[idxCentro];
     if (!confirm(`¿Eliminar el centro "${centro}"?`)) return;
+    const backup = JSON.parse(JSON.stringify(estructura));
     estructura[idxCiudad].centros.splice(idxCentro, 1);
-    await guardarEstructura();
-    renderizarEstructura();
-    llenarTodosLosSelects();
+    try {
+        await guardarEstructura();
+        renderizarEstructura();
+        llenarTodosLosSelects();
+    } catch (e) {
+        estructura = backup;
+    }
 }
 
 // ==================== FIRESTORE: REGISTROS ====================
@@ -549,12 +570,26 @@ async function cargarTablaEditable() {
     contenido.innerHTML = '<p>Cargando...</p>';
 
     try {
-        const doc = await obtenerDocumento(anio, ciudad, centro, mes);
+        let doc = await obtenerDocumento(anio, ciudad, centro, mes);
+
+        // Si no existe, se crea automáticamente con los días del mes
         if (!doc) {
-            contenido.innerHTML = '<p style="color:#c0392b;">❌ No hay datos. Usa "Crear Mes Nuevo" para agregar.</p>';
-            datosActuales = null; idDocumentoActual = null;
-            return;
+            const maxDias = getDiasDelMes(anio, mesIndex);
+            const registros = [];
+            for (let dia = 1; dia <= maxDias; dia++) {
+                const diaSemana = getNombreDia(anio, mesIndex, dia);
+                registros.push({
+                    diaSemana: diaSemana,
+                    fecha: dia,
+                    ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0, corte: false
+                });
+            }
+            const id = generarIdDoc(anio, ciudad, centro, mes);
+            await guardarDocumento(id, { anio, ciudad, centro, mes, meta: 0, registros });
+            doc = { id, anio, ciudad, centro, mes, meta: 0, registros };
+            mostrarMsg('add-msg', '✅ Mes creado automáticamente. Edita los datos y guarda.', 'ok');
         }
+
         datosActuales = { anio, ciudad, centro, mes, mesIndex, registros: doc.registros || [], meta: doc.meta || 0 };
         idDocumentoActual = doc.id;
         renderizarTablaEditable();
@@ -624,7 +659,8 @@ function agregarFila() {
 
     const diaSemana = getNombreDia(anio, mesIndex, dia);
     registros.push({
-        diaSemana: diaSemana, fecha: `${diaSemana} ${dia}`,
+        diaSemana: diaSemana,
+        fecha: dia,
         ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0, corte: false
     });
     renderizarTablaEditable();
@@ -639,7 +675,7 @@ function eliminarFila(idx) {
         const dia = i + 1;
         const diaSemana = getNombreDia(anio, mesIndex, dia);
         r.diaSemana = diaSemana;
-        r.fecha = `${diaSemana} ${dia}`;
+        r.fecha = dia;
     });
     renderizarTablaEditable();
 }
@@ -676,46 +712,10 @@ async function eliminarMes() {
     try {
         await eliminarDocumento(idDocumentoActual);
         datosActuales = null; idDocumentoActual = null;
-        document.getElementById('add-content').innerHTML = '<p style="color:#c0392b;">Mes eliminado. Usa "Crear Mes Nuevo" para agregar.</p>';
+        document.getElementById('add-content').innerHTML = '<p style="color:#c0392b;">Mes eliminado. Selecciona otro o carga la tabla para regenerarlo.</p>';
         mostrarMsg('add-msg', '🗑️ Mes eliminado correctamente.', 'ok');
     } catch (e) {
         mostrarMsg('add-msg', '❌ Error al eliminar: ' + e.message, 'err');
-    }
-}
-
-async function crearMesNuevo() {
-    const anio = parseInt(document.getElementById('add-anio').value);
-    const ciudad = document.getElementById('add-ciudad').value;
-    const centro = document.getElementById('add-centro').value;
-    const mesIndex = parseInt(document.getElementById('add-mes').value);
-    const mes = MESES[mesIndex];
-
-    if (!ciudad || !centro) { alert('Seleccione ciudad y centro.'); return; }
-
-    const existente = await obtenerDocumento(anio, ciudad, centro, mes);
-    if (existente) {
-        if (!confirm('Ya existe un registro para este mes. ¿Sobrescribir?')) return;
-    }
-
-    const maxDias = getDiasDelMes(anio, mesIndex);
-    const registros = [];
-    for (let dia = 1; dia <= maxDias; dia++) {
-        const diaSemana = getNombreDia(anio, mesIndex, dia);
-        registros.push({
-            diaSemana, fecha: `${diaSemana} ${dia}`,
-            ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0, corte: false
-        });
-    }
-
-    const id = generarIdDoc(anio, ciudad, centro, mes);
-    try {
-        await guardarDocumento(id, { anio, ciudad, centro, mes, meta: 0, registros });
-        datosActuales = { anio, ciudad, centro, mes, mesIndex, registros, meta: 0 };
-        idDocumentoActual = id;
-        renderizarTablaEditable();
-        mostrarMsg('add-msg', '✅ Mes creado correctamente. Ahora puedes editar los datos.', 'ok');
-    } catch (e) {
-        mostrarMsg('add-msg', '❌ Error al crear: ' + e.message, 'err');
     }
 }
 

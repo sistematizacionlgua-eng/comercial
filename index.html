@@ -4,17 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestión Comercial - Firebase</title>
-    <!-- Chart.js para gráficas -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase SDK (compat para simplificar) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { margin: 0; padding: 20px; background: #f0f2f5; }
         .container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; }
-        .tabs { display: flex; background: #1e3c72; }
-        .tab { padding: 14px 28px; color: #ccc; cursor: pointer; font-weight: 600; border: none; background: transparent; transition: 0.2s; font-size: 1rem; }
+        .tabs { display: flex; background: #1e3c72; flex-wrap: wrap; }
+        .tab { padding: 14px 24px; color: #ccc; cursor: pointer; font-weight: 600; border: none; background: transparent; transition: 0.2s; font-size: 1rem; }
         .tab:hover { background: #2a4d8f; color: white; }
         .tab.active { background: #f0f2f5; color: #1e3c72; border-radius: 8px 8px 0 0; }
         .panel { padding: 24px; display: none; }
@@ -50,6 +48,14 @@
         .small-select { min-width: 80px; padding: 4px; font-size: 0.8rem; }
         h3 { margin: 0 0 12px 0; color: #1e3c72; }
         .section-title { font-size: 1.2rem; font-weight: 700; color: #1e3c72; margin: 24px 0 12px 0; border-bottom: 2px solid #1e3c72; padding-bottom: 6px; }
+        .card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .card h4 { margin: 0 0 12px 0; color: #1e3c72; }
+        .inline-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+        .inline-form input { min-width: 200px; }
+        .tag { display: inline-block; background: #e8f0fe; color: #1e3c72; padding: 4px 10px; border-radius: 20px; margin: 4px; font-size: 0.85rem; font-weight: 600; }
+        .tag .remove { color: #c0392b; cursor: pointer; margin-left: 6px; font-weight: bold; }
+        .tag .remove:hover { color: #e74c3c; }
+        .empty-msg { color: #888; font-style: italic; padding: 12px; }
     </style>
 </head>
 <body>
@@ -58,6 +64,7 @@
         <button class="tab active" data-tab="general">General</button>
         <button class="tab" data-tab="graficas">Gráficas</button>
         <button class="tab" data-tab="agregar">Agregar Datos</button>
+        <button class="tab" data-tab="estructura">Ciudades y Centros</button>
     </div>
 
     <!-- ================= PESTAÑA GENERAL ================= -->
@@ -65,7 +72,7 @@
         <h3>📊 Consulta General</h3>
         <div class="filters">
             <div class="filter-group"><label>Año</label><select id="gen-anio"></select></div>
-            <div class="filter-group"><label>Ciudad</label><select id="gen-ciudad"></select></div>
+            <div class="filter-group"><label>Ciudad</label><select id="gen-ciudad" onchange="actualizarCentros('gen')"></select></div>
             <div class="filter-group"><label>Centro de Operaciones</label><select id="gen-centro"></select></div>
             <div class="filter-group"><label>Mes</label><select id="gen-mes"></select></div>
             <button onclick="cargarGeneral()">🔍 Consultar</button>
@@ -79,7 +86,7 @@
         <h3>📈 Gráfica por Día</h3>
         <div class="filters">
             <div class="filter-group"><label>Año</label><select id="graf-anio"></select></div>
-            <div class="filter-group"><label>Ciudad</label><select id="graf-ciudad"></select></div>
+            <div class="filter-group"><label>Ciudad</label><select id="graf-ciudad" onchange="actualizarCentros('graf')"></select></div>
             <div class="filter-group"><label>Centro de Operaciones</label><select id="graf-centro"></select></div>
             <div class="filter-group"><label>Mes</label><select id="graf-mes"></select></div>
             <div class="filter-group"><label>Métrica</label>
@@ -97,7 +104,7 @@
         <div class="section-title">🎯 Gráfica Meta vs Crecimiento Total</div>
         <div class="filters">
             <div class="filter-group"><label>Año</label><select id="meta-anio"></select></div>
-            <div class="filter-group"><label>Ciudad</label><select id="meta-ciudad"></select></div>
+            <div class="filter-group"><label>Ciudad</label><select id="meta-ciudad" onchange="actualizarCentros('meta')"></select></div>
             <div class="filter-group"><label>Centro de Operaciones</label><select id="meta-centro"></select></div>
             <div class="filter-group"><label>Mes</label><select id="meta-mes"></select></div>
             <button onclick="cargarGraficaMeta()">🎯 Generar Gráfica Meta</button>
@@ -110,7 +117,7 @@
         <h3>✏️ Agregar / Editar / Eliminar Datos</h3>
         <div class="filters">
             <div class="filter-group"><label>Año</label><select id="add-anio"></select></div>
-            <div class="filter-group"><label>Ciudad</label><select id="add-ciudad"></select></div>
+            <div class="filter-group"><label>Ciudad</label><select id="add-ciudad" onchange="actualizarCentros('add')"></select></div>
             <div class="filter-group"><label>Centro de Operaciones</label><select id="add-centro"></select></div>
             <div class="filter-group"><label>Mes</label><select id="add-mes"></select></div>
             <button onclick="cargarTablaEditable()">📂 Cargar Tabla</button>
@@ -118,6 +125,25 @@
         </div>
         <div id="add-msg" class="msg"></div>
         <div id="add-content"></div>
+    </div>
+
+    <!-- ================= PESTAÑA CIUDADES Y CENTROS ================= -->
+    <div id="panel-estructura" class="panel">
+        <h3>🏙️ Gestión de Ciudades y Centros de Operaciones</h3>
+        <p style="color:#555;">Cada ciudad tiene sus propios Centros de Operaciones. Los selects de las otras pestañas se filtran automáticamente según la ciudad elegida.</p>
+
+        <div class="card">
+            <h4>➕ Agregar Nueva Ciudad</h4>
+            <div class="inline-form">
+                <div class="filter-group">
+                    <label>Nombre de la Ciudad</label>
+                    <input type="text" id="nueva-ciudad" placeholder="Ej: Caracas">
+                </div>
+                <button class="success" onclick="agregarCiudad()">Agregar Ciudad</button>
+            </div>
+        </div>
+
+        <div id="estructura-content"></div>
     </div>
 </div>
 
@@ -137,12 +163,14 @@ const db = firebase.firestore();
 // ==================== CONSTANTES ====================
 const MESES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
 const DIAS_SEMANA = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const COLECCION_ESTRUCTURA = 'estructura_ciudades';
 
 // ==================== ESTADO GLOBAL ====================
 let chartDiariaInstance = null;
 let chartMetaInstance = null;
-let datosActuales = null; // { anio, ciudad, centro, mes, registros: [], meta: 0 }
+let datosActuales = null;
 let idDocumentoActual = null;
+let estructura = []; // [{ ciudad, centros: [...] }]
 
 // ==================== NAVEGACIÓN PESTAÑAS ====================
 document.querySelectorAll('.tab').forEach(tab => {
@@ -151,6 +179,7 @@ document.querySelectorAll('.tab').forEach(tab => {
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'estructura') cargarEstructura();
     });
 });
 
@@ -158,16 +187,13 @@ document.querySelectorAll('.tab').forEach(tab => {
 function getDiasDelMes(anio, mesIndex) {
     return new Date(anio, mesIndex + 1, 0).getDate();
 }
-
 function getNombreDia(anio, mesIndex, dia) {
     const d = new Date(anio, mesIndex, dia);
     return DIAS_SEMANA[d.getDay()];
 }
-
 function generarIdDoc(anio, ciudad, centro, mes) {
     return `${anio}_${ciudad}_${centro}_${mes}`.replace(/\s+/g, '_');
 }
-
 function mostrarMsg(id, texto, tipo = 'ok') {
     const el = document.getElementById(id);
     el.textContent = texto;
@@ -175,45 +201,172 @@ function mostrarMsg(id, texto, tipo = 'ok') {
     setTimeout(() => { el.className = 'msg'; }, 4000);
 }
 
-// Cargar opciones en selects (años, ciudades, centros, meses)
-function llenarSelects(prefijo) {
-    const anioSel = document.getElementById(prefijo + '-anio');
-    const ciudadSel = document.getElementById(prefijo + '-ciudad');
-    const centroSel = document.getElementById(prefijo + '-centro');
-    const mesSel = document.getElementById(prefijo + '-mes');
-
-    // Años 2020 - 2035
-    anioSel.innerHTML = '';
-    for (let a = 2020; a <= 2035; a++) {
-        anioSel.innerHTML += `<option value="${a}">${a}</option>`;
+// ==================== FIRESTORE: ESTRUCTURA ====================
+async function cargarEstructuraDesdeFirestore() {
+    try {
+        const doc = await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).get();
+        if (doc.exists && doc.data().ciudades) {
+            estructura = doc.data().ciudades;
+        } else {
+            // Estructura por defecto la primera vez
+            estructura = [
+                { ciudad: "Caracas", centros: ["C.O PARAISO","C.O CENTRO","C.O NORTE"] },
+                { ciudad: "Maracaibo", centros: ["C.O BELLAVISTA","C.O CENTRO"] },
+                { ciudad: "Valencia", centros: ["C.O SAN DIEGO","C.O CENTRO"] }
+            ];
+            await guardarEstructura();
+        }
+    } catch (e) {
+        console.error('Error cargando estructura:', e);
+        estructura = [];
     }
-    // Ciudades
-    const ciudades = ["Caracas","Maracaibo","Valencia","Barquisimeto","Maracay","Ciudad Guayana","Maturín"];
-    ciudadSel.innerHTML = ciudades.map(c => `<option value="${c}">${c}</option>`).join('');
-    // Centros
-    const centros = ["C.O PARAISO","C.O CENTRO","C.O NORTE","C.O SUR","C.O ESTE","C.O OESTE"];
-    centroSel.innerHTML = centros.map(c => `<option value="${c}">${c}</option>`).join('');
-    // Meses
-    mesSel.innerHTML = MESES.map((m,i) => `<option value="${i}">${m}</option>`).join('');
 }
 
-// Inicializar todos los selects
-['gen','graf','meta','add'].forEach(p => llenarSelects(p));
+async function guardarEstructura() {
+    await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).set({ ciudades: estructura });
+}
 
-// ==================== FIRESTORE OPERACIONES ====================
+// ==================== SELECTS DINÁMICOS ====================
+function llenarAnios(prefijo) {
+    const sel = document.getElementById(prefijo + '-anio');
+    sel.innerHTML = '';
+    for (let a = 2020; a <= 2035; a++) {
+        sel.innerHTML += `<option value="${a}">${a}</option>`;
+    }
+}
+
+function llenarMeses(prefijo) {
+    const sel = document.getElementById(prefijo + '-mes');
+    sel.innerHTML = MESES.map((m,i) => `<option value="${i}">${m}</option>`).join('');
+}
+
+function llenarCiudades(prefijo) {
+    const sel = document.getElementById(prefijo + '-ciudad');
+    const valorActual = sel.value;
+    sel.innerHTML = '<option value="">-- Seleccione --</option>' +
+        estructura.map(e => `<option value="${e.ciudad}">${e.ciudad}</option>`).join('');
+    if (valorActual && estructura.some(e => e.ciudad === valorActual)) {
+        sel.value = valorActual;
+    }
+    actualizarCentros(prefijo);
+}
+
+function actualizarCentros(prefijo) {
+    const ciudadSel = document.getElementById(prefijo + '-ciudad');
+    const centroSel = document.getElementById(prefijo + '-centro');
+    const ciudad = ciudadSel.value;
+    centroSel.innerHTML = '';
+
+    if (!ciudad) {
+        centroSel.innerHTML = '<option value="">-- Seleccione ciudad --</option>';
+        return;
+    }
+    const item = estructura.find(e => e.ciudad === ciudad);
+    if (item && item.centros.length > 0) {
+        centroSel.innerHTML = item.centros.map(c => `<option value="${c}">${c}</option>`).join('');
+    } else {
+        centroSel.innerHTML = '<option value="">-- Sin centros --</option>';
+    }
+}
+
+function llenarTodosLosSelects() {
+    ['gen','graf','meta','add'].forEach(p => {
+        llenarAnios(p);
+        llenarMeses(p);
+        llenarCiudades(p);
+    });
+}
+
+// ==================== PESTAÑA ESTRUCTURA ====================
+async function cargarEstructura() {
+    await cargarEstructuraDesdeFirestore();
+    renderizarEstructura();
+}
+
+function renderizarEstructura() {
+    const cont = document.getElementById('estructura-content');
+    if (estructura.length === 0) {
+        cont.innerHTML = '<p class="empty-msg">No hay ciudades registradas. Agrega una arriba.</p>';
+        return;
+    }
+
+    let html = '';
+    estructura.forEach((item, idx) => {
+        html += `<div class="card">
+            <h4>🏙️ ${item.ciudad} 
+                <button class="small danger" style="float:right;" onclick="eliminarCiudad(${idx})">🗑️ Eliminar Ciudad</button>
+            </h4>
+            <div style="margin-bottom:10px;">
+                ${item.centros.length > 0 
+                    ? item.centros.map((c,ci) => `<span class="tag">${c}<span class="remove" onclick="eliminarCentro(${idx},${ci})">×</span></span>`).join('')
+                    : '<span class="empty-msg">Sin centros registrados</span>'}
+            </div>
+            <div class="inline-form">
+                <div class="filter-group">
+                    <label>Nuevo Centro de Operaciones</label>
+                    <input type="text" id="nuevo-centro-${idx}" placeholder="Ej: C.O PARAISO">
+                </div>
+                <button class="success small" onclick="agregarCentro(${idx})">➕ Agregar Centro</button>
+            </div>
+        </div>`;
+    });
+    cont.innerHTML = html;
+}
+
+async function agregarCiudad() {
+    const input = document.getElementById('nueva-ciudad');
+    const nombre = input.value.trim().toUpperCase();
+    if (!nombre) { alert('Ingrese un nombre de ciudad.'); return; }
+    if (estructura.some(e => e.ciudad === nombre)) { alert('Esa ciudad ya existe.'); return; }
+
+    estructura.push({ ciudad: nombre, centros: [] });
+    await guardarEstructura();
+    input.value = '';
+    renderizarEstructura();
+    llenarTodosLosSelects();
+    mostrarMsg('add-msg', `✅ Ciudad "${nombre}" agregada.`, 'ok');
+}
+
+async function eliminarCiudad(idx) {
+    const ciudad = estructura[idx].ciudad;
+    if (!confirm(`¿Eliminar la ciudad "${ciudad}" y todos sus centros?`)) return;
+    estructura.splice(idx, 1);
+    await guardarEstructura();
+    renderizarEstructura();
+    llenarTodosLosSelects();
+}
+
+async function agregarCentro(idx) {
+    const input = document.getElementById('nuevo-centro-' + idx);
+    const nombre = input.value.trim().toUpperCase();
+    if (!nombre) { alert('Ingrese un nombre de centro.'); return; }
+    if (estructura[idx].centros.includes(nombre)) { alert('Ese centro ya existe en esta ciudad.'); return; }
+
+    estructura[idx].centros.push(nombre);
+    await guardarEstructura();
+    renderizarEstructura();
+    llenarTodosLosSelects();
+}
+
+async function eliminarCentro(idxCiudad, idxCentro) {
+    const centro = estructura[idxCiudad].centros[idxCentro];
+    if (!confirm(`¿Eliminar el centro "${centro}"?`)) return;
+    estructura[idxCiudad].centros.splice(idxCentro, 1);
+    await guardarEstructura();
+    renderizarEstructura();
+    llenarTodosLosSelects();
+}
+
+// ==================== FIRESTORE: REGISTROS ====================
 async function obtenerDocumento(anio, ciudad, centro, mes) {
     const id = generarIdDoc(anio, ciudad, centro, mes);
     const doc = await db.collection('registros_diarios').doc(id).get();
-    if (doc.exists) {
-        return { id, ...doc.data() };
-    }
+    if (doc.exists) return { id, ...doc.data() };
     return null;
 }
-
 async function guardarDocumento(id, data) {
     await db.collection('registros_diarios').doc(id).set(data);
 }
-
 async function eliminarDocumento(id) {
     await db.collection('registros_diarios').doc(id).delete();
 }
@@ -227,6 +380,7 @@ async function cargarGeneral() {
     const mes = MESES[mesIndex];
 
     const contenido = document.getElementById('general-content');
+    if (!ciudad || !centro) { contenido.innerHTML = '<p style="color:#c0392b;">Seleccione ciudad y centro.</p>'; return; }
     contenido.innerHTML = '<p>Cargando...</p>';
 
     try {
@@ -235,13 +389,13 @@ async function cargarGeneral() {
             contenido.innerHTML = '<p style="color:#c0392b;">❌ No hay datos para esta selección.</p>';
             return;
         }
-        renderizarTablaGeneral(doc, anio, ciudad, centro, mes, mesIndex);
+        renderizarTablaGeneral(doc, anio, ciudad, centro, mes);
     } catch (e) {
         contenido.innerHTML = '<p style="color:#c0392b;">Error: ' + e.message + '</p>';
     }
 }
 
-function renderizarTablaGeneral(doc, anio, ciudad, centro, mes, mesIndex) {
+function renderizarTablaGeneral(doc, anio, ciudad, centro, mes) {
     const registros = doc.registros || [];
     const meta = doc.meta || 0;
 
@@ -254,7 +408,7 @@ function renderizarTablaGeneral(doc, anio, ciudad, centro, mes, mesIndex) {
 
     let sumTotal = 0, sumVentas = 0, sumRecon = 0, sumMigr = 0, sumPerd = 0, sumCrec = 0;
 
-    registros.forEach((r, idx) => {
+    registros.forEach(r => {
         const totalFila = (r.ventas||0) + (r.reconexiones||0) + (r.migraciones||0);
         sumTotal += totalFila;
         sumVentas += r.ventas||0;
@@ -287,7 +441,6 @@ function renderizarTablaGeneral(doc, anio, ciudad, centro, mes, mesIndex) {
     </tr>`;
     html += '</tbody></table></div>';
 
-    // Comparación con meta
     const diferencia = sumCrec - meta;
     const color = diferencia >= 0 ? '#27ae60' : '#c0392b';
     const texto = diferencia >= 0 ? `✅ Supera meta por ${diferencia}` : `❌ Falta ${Math.abs(diferencia)} para la meta`;
@@ -307,6 +460,8 @@ async function cargarGraficaDiaria() {
     const mes = MESES[mesIndex];
     const metrica = document.getElementById('graf-metrica').value;
 
+    if (!ciudad || !centro) { alert('Seleccione ciudad y centro.'); return; }
+
     try {
         const doc = await obtenerDocumento(anio, ciudad, centro, mes);
         if (!doc) { alert('No hay datos para esta selección.'); return; }
@@ -314,7 +469,6 @@ async function cargarGraficaDiaria() {
         const registros = doc.registros || [];
         const labels = registros.map(r => r.fecha || '');
         const data = registros.map(r => r[metrica] || 0);
-
         const nombres = { ventas:'Ventas', reconexiones:'Re-conexiones', migraciones:'Migraciones', clientesPerdidos:'Clientes Perdidos' };
 
         if (chartDiariaInstance) chartDiariaInstance.destroy();
@@ -338,9 +492,7 @@ async function cargarGraficaDiaria() {
                 scales: { y: { beginAtZero: true } }
             }
         });
-    } catch (e) {
-        alert('Error: ' + e.message);
-    }
+    } catch (e) { alert('Error: ' + e.message); }
 }
 
 async function cargarGraficaMeta() {
@@ -349,6 +501,8 @@ async function cargarGraficaMeta() {
     const centro = document.getElementById('meta-centro').value;
     const mesIndex = parseInt(document.getElementById('meta-mes').value);
     const mes = MESES[mesIndex];
+
+    if (!ciudad || !centro) { alert('Seleccione ciudad y centro.'); return; }
 
     try {
         const doc = await obtenerDocumento(anio, ciudad, centro, mes);
@@ -379,9 +533,7 @@ async function cargarGraficaMeta() {
                 scales: { y: { beginAtZero: true } }
             }
         });
-    } catch (e) {
-        alert('Error: ' + e.message);
-    }
+    } catch (e) { alert('Error: ' + e.message); }
 }
 
 // ==================== PESTAÑA AGREGAR DATOS ====================
@@ -393,14 +545,14 @@ async function cargarTablaEditable() {
     const mes = MESES[mesIndex];
 
     const contenido = document.getElementById('add-content');
+    if (!ciudad || !centro) { contenido.innerHTML = '<p style="color:#c0392b;">Seleccione ciudad y centro.</p>'; return; }
     contenido.innerHTML = '<p>Cargando...</p>';
 
     try {
         const doc = await obtenerDocumento(anio, ciudad, centro, mes);
         if (!doc) {
             contenido.innerHTML = '<p style="color:#c0392b;">❌ No hay datos. Usa "Crear Mes Nuevo" para agregar.</p>';
-            datosActuales = null;
-            idDocumentoActual = null;
+            datosActuales = null; idDocumentoActual = null;
             return;
         }
         datosActuales = { anio, ciudad, centro, mes, mesIndex, registros: doc.registros || [], meta: doc.meta || 0 };
@@ -413,7 +565,7 @@ async function cargarTablaEditable() {
 
 function renderizarTablaEditable() {
     if (!datosActuales) return;
-    const { anio, ciudad, centro, mes, mesIndex, registros, meta } = datosActuales;
+    const { anio, ciudad, centro, mes, registros, meta } = datosActuales;
 
     let html = `<div class="meta-info"><strong>${anio} - ${ciudad} - ${centro} - ${mes}</strong></div>`;
     html += `<div class="meta-info">🎯 Meta del mes: <input type="number" id="edit-meta" value="${meta}" style="width:100px; padding:4px;"> 
@@ -439,7 +591,7 @@ function renderizarTablaEditable() {
     });
 
     html += '</tbody></table></div>';
-    html += `<div style="margin-top:12px; display:flex; gap:10px;">
+    html += `<div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="success" onclick="agregarFila()">➕ Agregar Fila</button>
         <button onclick="guardarTodo()">💾 Guardar Todos los Cambios</button>
         <button class="danger" onclick="eliminarMes()">🗑️ Eliminar Mes Completo</button>
@@ -456,7 +608,6 @@ function editarCampo(idx, campo, valor) {
 function toggleCorte(idx, checked) {
     if (!datosActuales) return;
     datosActuales.registros[idx].corte = checked;
-    // Actualizar sombreado visual
     const fila = document.getElementById('fila-' + idx);
     if (fila) {
         if (checked) fila.classList.add('corte');
@@ -473,14 +624,8 @@ function agregarFila() {
 
     const diaSemana = getNombreDia(anio, mesIndex, dia);
     registros.push({
-        diaSemana: diaSemana,
-        fecha: `${diaSemana} ${dia}`,
-        ventas: 0,
-        reconexiones: 0,
-        migraciones: 0,
-        clientesPerdidos: 0,
-        crecimiento: 0,
-        corte: false
+        diaSemana: diaSemana, fecha: `${diaSemana} ${dia}`,
+        ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0, corte: false
     });
     renderizarTablaEditable();
 }
@@ -489,7 +634,6 @@ function eliminarFila(idx) {
     if (!datosActuales) return;
     if (!confirm('¿Eliminar esta fila?')) return;
     datosActuales.registros.splice(idx, 1);
-    // Reajustar días
     const { anio, mesIndex } = datosActuales;
     datosActuales.registros.forEach((r, i) => {
         const dia = i + 1;
@@ -520,7 +664,6 @@ async function guardarTodo() {
             registros: datosActuales.registros
         });
         mostrarMsg('add-msg', '✅ Datos guardados correctamente en Firestore.', 'ok');
-        // Recargar la tabla para reflejar el orden
         renderizarTablaEditable();
     } catch (e) {
         mostrarMsg('add-msg', '❌ Error al guardar: ' + e.message, 'err');
@@ -532,8 +675,7 @@ async function eliminarMes() {
     if (!confirm('¿Eliminar TODO el mes? Esta acción no se puede deshacer.')) return;
     try {
         await eliminarDocumento(idDocumentoActual);
-        datosActuales = null;
-        idDocumentoActual = null;
+        datosActuales = null; idDocumentoActual = null;
         document.getElementById('add-content').innerHTML = '<p style="color:#c0392b;">Mes eliminado. Usa "Crear Mes Nuevo" para agregar.</p>';
         mostrarMsg('add-msg', '🗑️ Mes eliminado correctamente.', 'ok');
     } catch (e) {
@@ -548,6 +690,8 @@ async function crearMesNuevo() {
     const mesIndex = parseInt(document.getElementById('add-mes').value);
     const mes = MESES[mesIndex];
 
+    if (!ciudad || !centro) { alert('Seleccione ciudad y centro.'); return; }
+
     const existente = await obtenerDocumento(anio, ciudad, centro, mes);
     if (existente) {
         if (!confirm('Ya existe un registro para este mes. ¿Sobrescribir?')) return;
@@ -558,22 +702,14 @@ async function crearMesNuevo() {
     for (let dia = 1; dia <= maxDias; dia++) {
         const diaSemana = getNombreDia(anio, mesIndex, dia);
         registros.push({
-            diaSemana: diaSemana,
-            fecha: `${diaSemana} ${dia}`,
-            ventas: 0,
-            reconexiones: 0,
-            migraciones: 0,
-            clientesPerdidos: 0,
-            crecimiento: 0,
-            corte: false
+            diaSemana, fecha: `${diaSemana} ${dia}`,
+            ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0, corte: false
         });
     }
 
     const id = generarIdDoc(anio, ciudad, centro, mes);
     try {
-        await guardarDocumento(id, {
-            anio, ciudad, centro, mes, meta: 0, registros
-        });
+        await guardarDocumento(id, { anio, ciudad, centro, mes, meta: 0, registros });
         datosActuales = { anio, ciudad, centro, mes, mesIndex, registros, meta: 0 };
         idDocumentoActual = id;
         renderizarTablaEditable();
@@ -584,8 +720,10 @@ async function crearMesNuevo() {
 }
 
 // ==================== INICIALIZACIÓN ====================
-window.addEventListener('DOMContentLoaded', () => {
-    // Cargar valores por defecto del año actual
+window.addEventListener('DOMContentLoaded', async () => {
+    await cargarEstructuraDesdeFirestore();
+    llenarTodosLosSelects();
+
     const anioActual = new Date().getFullYear();
     ['gen','graf','meta','add'].forEach(p => {
         const sel = document.getElementById(p + '-anio');

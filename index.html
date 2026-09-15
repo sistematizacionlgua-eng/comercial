@@ -28,6 +28,7 @@
         button.success { background: #27ae60; }
         button.success:hover { background: #2ecc71; }
         button.small { padding: 4px 10px; font-size: 0.8rem; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.9rem; }
         th, td { border: 1px solid #bbb; padding: 8px 10px; text-align: center; }
         th { background: #1e3c72; color: white; font-weight: 600; position: sticky; top: 0; }
@@ -43,6 +44,7 @@
         .msg { padding: 10px 16px; border-radius: 6px; margin: 10px 0; display: none; }
         .msg.ok { background: #d4edda; color: #155724; display: block; }
         .msg.err { background: #f8d7da; color: #721c24; display: block; }
+        .msg.info { background: #d1ecf1; color: #0c5460; display: block; }
         .table-wrapper { overflow-x: auto; max-height: 600px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; }
         h3 { margin: 0 0 12px 0; color: #1e3c72; }
         .section-title { font-size: 1.2rem; font-weight: 700; color: #1e3c72; margin: 24px 0 12px 0; border-bottom: 2px solid #1e3c72; padding-bottom: 6px; }
@@ -54,6 +56,10 @@
         .tag .remove { color: #c0392b; cursor: pointer; margin-left: 6px; font-weight: bold; }
         .tag .remove:hover { color: #e74c3c; }
         .empty-msg { color: #888; font-style: italic; padding: 12px; }
+        .progress-bar { width: 100%; height: 24px; background: #e9ecef; border-radius: 12px; overflow: hidden; margin: 12px 0; display: none; }
+        .progress-bar.active { display: block; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #1e3c72, #2a4d8f); width: 0%; transition: width 0.2s; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; font-weight: 600; }
+        .backup-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
     </style>
 </head>
 <body>
@@ -63,6 +69,7 @@
         <button class="tab" data-tab="graficas">Gráficas</button>
         <button class="tab" data-tab="agregar">Agregar Datos</button>
         <button class="tab" data-tab="estructura">Ciudades y Centros</button>
+        <button class="tab" data-tab="backup">Base de Datos</button>
     </div>
 
     <!-- ================= PESTAÑA GENERAL ================= -->
@@ -142,6 +149,47 @@
 
         <div id="estructura-content"></div>
     </div>
+
+    <!-- ================= PESTAÑA BASE DE DATOS ================= -->
+    <div id="panel-backup" class="panel">
+        <h3>💾 Base de Datos - Respaldo y Restauración</h3>
+
+        <div class="card">
+            <h4>⬇️ Exportar Respaldo</h4>
+            <p style="color:#555; margin-top:0;">Descarga un archivo <strong>.json</strong> con toda la información almacenada en Firestore: estructura de ciudades y centros, y todos los registros diarios.</p>
+            <button class="success" onclick="exportarRespaldo()">📥 Exportar Respaldo (.json)</button>
+            <div id="export-info" style="margin-top:12px; color:#555; font-size:0.9rem;"></div>
+        </div>
+
+        <div class="card">
+            <h4>⬆️ Importar Respaldo</h4>
+            <p style="color:#555; margin-top:0;">Selecciona un archivo <strong>.json</strong> previamente exportado para restaurar la información.</p>
+            <input type="file" id="archivo-import" accept=".json,application/json" onchange="prepararImportacion(event)">
+            <div id="import-preview" style="margin-top:12px;"></div>
+
+            <div class="progress-bar" id="progress-bar">
+                <div class="progress-fill" id="progress-fill">0%</div>
+            </div>
+
+            <div id="import-actions" style="display:none; gap:10px; margin-top:12px; flex-wrap:wrap;">
+                <button class="success" onclick="ejecutarImportacion('fusionar')">🔀 Fusionar con datos existentes</button>
+                <button class="danger" onclick="ejecutarImportacion('reemplazar')">♻️ Reemplazar todo</button>
+                <button onclick="cancelarImportacion()">❌ Cancelar</button>
+            </div>
+        </div>
+
+        <div id="backup-msg" class="msg"></div>
+
+        <div class="card" style="background:#fff3cd;">
+            <h4>ℹ️ Información útil</h4>
+            <ul style="margin:8px 0; padding-left:20px; color:#555;">
+                <li><strong>Fusionar</strong>: agrega o actualiza solo los documentos del respaldo. No borra nada existente.</li>
+                <li><strong>Reemplazar todo</strong>: elimina TODA la información actual y luego carga la del respaldo.</li>
+                <li>El respaldo incluye la estructura de ciudades/centros y todos los meses con sus registros.</li>
+                <li>Recomendamos exportar un respaldo antes de hacer cambios importantes.</li>
+            </ul>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -167,7 +215,8 @@ let chartDiariaInstance = null;
 let chartMetaInstance = null;
 let datosActuales = null;
 let idDocumentoActual = null;
-let estructura = []; // [{ ciudad, centros: [...] }]
+let estructura = [];
+let respaldoPendiente = null; // Guarda el JSON parseado listo para importar
 
 // ==================== NAVEGACIÓN PESTAÑAS ====================
 document.querySelectorAll('.tab').forEach(tab => {
@@ -195,7 +244,12 @@ function mostrarMsg(id, texto, tipo = 'ok') {
     const el = document.getElementById(id);
     el.textContent = texto;
     el.className = 'msg ' + tipo;
-    setTimeout(() => { el.className = 'msg'; }, 4000);
+    setTimeout(() => { el.className = 'msg'; }, 6000);
+}
+function timestampParaArchivo() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
 }
 
 // ==================== FIRESTORE: ESTRUCTURA ====================
@@ -205,7 +259,6 @@ async function cargarEstructuraDesdeFirestore() {
         if (doc.exists && doc.data().ciudades) {
             estructura = doc.data().ciudades;
         } else {
-            // Estructura por defecto la primera vez
             estructura = [
                 { ciudad: "CARACAS", centros: ["C.O PARAISO","C.O CENTRO","C.O NORTE"] },
                 { ciudad: "MARACAIBO", centros: ["C.O BELLAVISTA","C.O CENTRO"] },
@@ -237,12 +290,10 @@ function llenarAnios(prefijo) {
         sel.innerHTML += `<option value="${a}">${a}</option>`;
     }
 }
-
 function llenarMeses(prefijo) {
     const sel = document.getElementById(prefijo + '-mes');
     sel.innerHTML = MESES.map((m,i) => `<option value="${i}">${m}</option>`).join('');
 }
-
 function llenarCiudades(prefijo) {
     const sel = document.getElementById(prefijo + '-ciudad');
     const valorActual = sel.value;
@@ -253,13 +304,11 @@ function llenarCiudades(prefijo) {
     }
     actualizarCentros(prefijo);
 }
-
 function actualizarCentros(prefijo) {
     const ciudadSel = document.getElementById(prefijo + '-ciudad');
     const centroSel = document.getElementById(prefijo + '-centro');
     const ciudad = ciudadSel.value;
     centroSel.innerHTML = '';
-
     if (!ciudad) {
         centroSel.innerHTML = '<option value="">-- Seleccione ciudad --</option>';
         return;
@@ -271,7 +320,6 @@ function actualizarCentros(prefijo) {
         centroSel.innerHTML = '<option value="">-- Sin centros --</option>';
     }
 }
-
 function llenarTodosLosSelects() {
     ['gen','graf','meta','add'].forEach(p => {
         llenarAnios(p);
@@ -285,14 +333,12 @@ async function cargarEstructura() {
     await cargarEstructuraDesdeFirestore();
     renderizarEstructura();
 }
-
 function renderizarEstructura() {
     const cont = document.getElementById('estructura-content');
     if (estructura.length === 0) {
         cont.innerHTML = '<p class="empty-msg">No hay ciudades registradas. Agrega una arriba.</p>';
         return;
     }
-
     let html = '';
     estructura.forEach((item, idx) => {
         html += `<div class="card">
@@ -315,25 +361,20 @@ function renderizarEstructura() {
     });
     cont.innerHTML = html;
 }
-
 async function agregarCiudad() {
     const input = document.getElementById('nueva-ciudad');
     const nombre = input.value.trim().toUpperCase();
     if (!nombre) { alert('Ingrese un nombre de ciudad.'); return; }
     if (estructura.some(e => e.ciudad === nombre)) { alert('Esa ciudad ya existe.'); return; }
-
     estructura.push({ ciudad: nombre, centros: [] });
     try {
         await guardarEstructura();
         input.value = '';
         renderizarEstructura();
         llenarTodosLosSelects();
-        mostrarMsg('add-msg', `✅ Ciudad "${nombre}" agregada.`, 'ok');
-    } catch (e) {
-        estructura.pop();
-    }
+        mostrarMsg('backup-msg', `✅ Ciudad "${nombre}" agregada.`, 'ok');
+    } catch (e) { estructura.pop(); }
 }
-
 async function eliminarCiudad(idx) {
     const ciudad = estructura[idx].ciudad;
     if (!confirm(`¿Eliminar la ciudad "${ciudad}" y todos sus centros?`)) return;
@@ -343,27 +384,20 @@ async function eliminarCiudad(idx) {
         await guardarEstructura();
         renderizarEstructura();
         llenarTodosLosSelects();
-    } catch (e) {
-        estructura = backup;
-    }
+    } catch (e) { estructura = backup; }
 }
-
 async function agregarCentro(idx) {
     const input = document.getElementById('nuevo-centro-' + idx);
     const nombre = input.value.trim().toUpperCase();
     if (!nombre) { alert('Ingrese un nombre de centro.'); return; }
     if (estructura[idx].centros.includes(nombre)) { alert('Ese centro ya existe en esta ciudad.'); return; }
-
     estructura[idx].centros.push(nombre);
     try {
         await guardarEstructura();
         renderizarEstructura();
         llenarTodosLosSelects();
-    } catch (e) {
-        estructura[idx].centros.pop();
-    }
+    } catch (e) { estructura[idx].centros.pop(); }
 }
-
 async function eliminarCentro(idxCiudad, idxCentro) {
     const centro = estructura[idxCiudad].centros[idxCentro];
     if (!confirm(`¿Eliminar el centro "${centro}"?`)) return;
@@ -373,9 +407,7 @@ async function eliminarCentro(idxCiudad, idxCentro) {
         await guardarEstructura();
         renderizarEstructura();
         llenarTodosLosSelects();
-    } catch (e) {
-        estructura = backup;
-    }
+    } catch (e) { estructura = backup; }
 }
 
 // ==================== FIRESTORE: REGISTROS ====================
@@ -403,7 +435,6 @@ async function cargarGeneral() {
     const contenido = document.getElementById('general-content');
     if (!ciudad || !centro) { contenido.innerHTML = '<p style="color:#c0392b;">Seleccione ciudad y centro.</p>'; return; }
     contenido.innerHTML = '<p>Cargando...</p>';
-
     try {
         const doc = await obtenerDocumento(anio, ciudad, centro, mes);
         if (!doc) {
@@ -415,14 +446,12 @@ async function cargarGeneral() {
         contenido.innerHTML = '<p style="color:#c0392b;">Error: ' + e.message + '</p>';
     }
 }
-
 function renderizarTablaGeneral(doc, anio, ciudad, centro, mes) {
     const registros = doc.registros || [];
     const meta = doc.meta || 0;
 
     let html = `<div class="meta-info"><strong>${anio} - ${ciudad} - ${centro} - ${mes}</strong></div>`;
     html += `<div class="meta-info">🎯 Meta: <strong>${meta}</strong></div>`;
-
     html += '<div class="table-wrapper"><table><thead><tr>';
     html += '<th>Día</th><th>Fecha</th><th>Total</th><th>Ventas</th><th>Re-conexiones</th><th>Migraciones</th><th>Clientes Perdidos</th><th>Crecimiento</th>';
     html += '</tr></thead><tbody>';
@@ -482,7 +511,6 @@ async function cargarGraficaDiaria() {
     const metrica = document.getElementById('graf-metrica').value;
 
     if (!ciudad || !centro) { alert('Seleccione ciudad y centro.'); return; }
-
     try {
         const doc = await obtenerDocumento(anio, ciudad, centro, mes);
         if (!doc) { alert('No hay datos para esta selección.'); return; }
@@ -515,7 +543,6 @@ async function cargarGraficaDiaria() {
         });
     } catch (e) { alert('Error: ' + e.message); }
 }
-
 async function cargarGraficaMeta() {
     const anio = parseInt(document.getElementById('meta-anio').value);
     const ciudad = document.getElementById('meta-ciudad').value;
@@ -524,7 +551,6 @@ async function cargarGraficaMeta() {
     const mes = MESES[mesIndex];
 
     if (!ciudad || !centro) { alert('Seleccione ciudad y centro.'); return; }
-
     try {
         const doc = await obtenerDocumento(anio, ciudad, centro, mes);
         if (!doc) { alert('No hay datos para esta selección.'); return; }
@@ -568,11 +594,8 @@ async function cargarTablaEditable() {
     const contenido = document.getElementById('add-content');
     if (!ciudad || !centro) { contenido.innerHTML = '<p style="color:#c0392b;">Seleccione ciudad y centro.</p>'; return; }
     contenido.innerHTML = '<p>Cargando...</p>';
-
     try {
         let doc = await obtenerDocumento(anio, ciudad, centro, mes);
-
-        // Si no existe, se crea automáticamente con los días del mes
         if (!doc) {
             const maxDias = getDiasDelMes(anio, mesIndex);
             const registros = [];
@@ -589,7 +612,6 @@ async function cargarTablaEditable() {
             doc = { id, anio, ciudad, centro, mes, meta: 0, registros };
             mostrarMsg('add-msg', '✅ Mes creado automáticamente. Edita los datos y guarda.', 'ok');
         }
-
         datosActuales = { anio, ciudad, centro, mes, mesIndex, registros: doc.registros || [], meta: doc.meta || 0 };
         idDocumentoActual = doc.id;
         renderizarTablaEditable();
@@ -597,7 +619,6 @@ async function cargarTablaEditable() {
         contenido.innerHTML = '<p style="color:#c0392b;">Error: ' + e.message + '</p>';
     }
 }
-
 function renderizarTablaEditable() {
     if (!datosActuales) return;
     const { anio, ciudad, centro, mes, registros, meta } = datosActuales;
@@ -634,12 +655,10 @@ function renderizarTablaEditable() {
 
     document.getElementById('add-content').innerHTML = html;
 }
-
 function editarCampo(idx, campo, valor) {
     if (!datosActuales) return;
     datosActuales.registros[idx][campo] = parseFloat(valor) || 0;
 }
-
 function toggleCorte(idx, checked) {
     if (!datosActuales) return;
     datosActuales.registros[idx].corte = checked;
@@ -649,23 +668,19 @@ function toggleCorte(idx, checked) {
         else fila.classList.remove('corte');
     }
 }
-
 function agregarFila() {
     if (!datosActuales) return;
     const { anio, mesIndex, registros } = datosActuales;
     const dia = registros.length + 1;
     const maxDias = getDiasDelMes(anio, mesIndex);
     if (dia > maxDias) { alert('Ya se alcanzó el máximo de días del mes.'); return; }
-
     const diaSemana = getNombreDia(anio, mesIndex, dia);
     registros.push({
-        diaSemana: diaSemana,
-        fecha: dia,
+        diaSemana: diaSemana, fecha: dia,
         ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0, corte: false
     });
     renderizarTablaEditable();
 }
-
 function eliminarFila(idx) {
     if (!datosActuales) return;
     if (!confirm('¿Eliminar esta fila?')) return;
@@ -679,7 +694,6 @@ function eliminarFila(idx) {
     });
     renderizarTablaEditable();
 }
-
 async function actualizarMeta() {
     if (!datosActuales) return;
     const nuevaMeta = parseFloat(document.getElementById('edit-meta').value) || 0;
@@ -687,7 +701,6 @@ async function actualizarMeta() {
     await guardarTodo();
     mostrarMsg('add-msg', '✅ Meta actualizada correctamente.', 'ok');
 }
-
 async function guardarTodo() {
     if (!datosActuales || !idDocumentoActual) return;
     try {
@@ -705,7 +718,6 @@ async function guardarTodo() {
         mostrarMsg('add-msg', '❌ Error al guardar: ' + e.message, 'err');
     }
 }
-
 async function eliminarMes() {
     if (!idDocumentoActual) return;
     if (!confirm('¿Eliminar TODO el mes? Esta acción no se puede deshacer.')) return;
@@ -716,6 +728,200 @@ async function eliminarMes() {
         mostrarMsg('add-msg', '🗑️ Mes eliminado correctamente.', 'ok');
     } catch (e) {
         mostrarMsg('add-msg', '❌ Error al eliminar: ' + e.message, 'err');
+    }
+}
+
+// ==================== PESTAÑA BASE DE DATOS: EXPORTAR ====================
+async function exportarRespaldo() {
+    const info = document.getElementById('export-info');
+    info.textContent = '⏳ Recopilando información...';
+    try {
+        // 1. Estructura
+        const estructuraDoc = await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).get();
+        const estructuraData = estructuraDoc.exists ? estructuraDoc.data() : { ciudades: [] };
+
+        // 2. Todos los registros diarios
+        const snapshot = await db.collection('registros_diarios').get();
+        const registros = [];
+        snapshot.forEach(doc => {
+            registros.push({ id: doc.id, ...doc.data() });
+        });
+
+        const respaldo = {
+            version: 1,
+            fechaExportacion: new Date().toISOString(),
+            proyecto: firebaseConfig.projectId,
+            estructura: estructuraData,
+            registrosDiarios: registros
+        };
+
+        const jsonStr = JSON.stringify(respaldo, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `respaldo_comercial_${timestampParaArchivo()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        info.innerHTML = `✅ Respaldo generado: <strong>${estructuraData.ciudades?.length || 0}</strong> ciudades y <strong>${registros.length}</strong> registros mensuales exportados.`;
+        mostrarMsg('backup-msg', '✅ Respaldo descargado correctamente.', 'ok');
+    } catch (e) {
+        info.textContent = '';
+        mostrarMsg('backup-msg', '❌ Error al exportar: ' + e.message, 'err');
+    }
+}
+
+// ==================== PESTAÑA BASE DE DATOS: IMPORTAR ====================
+function prepararImportacion(event) {
+    const file = event.target.files[0];
+    const preview = document.getElementById('import-preview');
+    const actions = document.getElementById('import-actions');
+    const msg = document.getElementById('backup-msg');
+
+    if (!file) {
+        preview.innerHTML = '';
+        actions.style.display = 'none';
+        respaldoPendiente = null;
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            // Validaciones mínimas
+            if (!data || typeof data !== 'object') throw new Error('Formato inválido.');
+            if (!data.estructura && !data.registrosDiarios) throw new Error('El archivo no contiene datos reconocibles.');
+
+            respaldoPendiente = data;
+
+            const numCiudades = data.estructura?.ciudades?.length || 0;
+            const numRegistros = data.registrosDiarios?.length || 0;
+            const fecha = data.fechaExportacion ? new Date(data.fechaExportacion).toLocaleString() : 'Desconocida';
+
+            preview.innerHTML = `
+                <div class="card" style="background:#e8f0fe;">
+                    <h4>📄 Resumen del respaldo</h4>
+                    <ul style="margin:6px 0; padding-left:20px;">
+                        <li><strong>Fecha de exportación:</strong> ${fecha}</li>
+                        <li><strong>Proyecto origen:</strong> ${data.proyecto || 'Desconocido'}</li>
+                        <li><strong>Ciudades:</strong> ${numCiudades}</li>
+                        <li><strong>Registros mensuales:</strong> ${numRegistros}</li>
+                        <li><strong>Versión:</strong> ${data.version || 'N/A'}</li>
+                    </ul>
+                </div>`;
+            actions.style.display = 'flex';
+            msg.className = 'msg';
+        } catch (err) {
+            preview.innerHTML = `<p style="color:#c0392b;">❌ Error al leer el archivo: ${err.message}</p>`;
+            actions.style.display = 'none';
+            respaldoPendiente = null;
+        }
+    };
+    reader.readAsText(file);
+}
+
+function cancelarImportacion() {
+    respaldoPendiente = null;
+    document.getElementById('archivo-import').value = '';
+    document.getElementById('import-preview').innerHTML = '';
+    document.getElementById('import-actions').style.display = 'none';
+    document.getElementById('backup-msg').className = 'msg';
+}
+
+async function ejecutarImportacion(modo) {
+    if (!respaldoPendiente) return;
+    const modoTexto = modo === 'fusionar' ? 'FUSIONAR' : 'REEMPLAZAR TODO';
+    if (!confirm(`¿Confirmas ${modoTexto} con los datos del respaldo?`)) return;
+
+    const progressBar = document.getElementById('progress-bar');
+    const progressFill = document.getElementById('progress-fill');
+    const actions = document.getElementById('import-actions');
+    progressBar.classList.add('active');
+    progressFill.style.width = '0%';
+    progressFill.textContent = '0%';
+    actions.style.display = 'none';
+
+    const setProgress = (pct, texto) => {
+        const p = Math.round(pct);
+        progressFill.style.width = p + '%';
+        progressFill.textContent = texto || (p + '%');
+    };
+
+    try {
+        // 1. Si es reemplazar, borrar todo primero
+        if (modo === 'reemplazar') {
+            setProgress(2, 'Borrando datos existentes...');
+            const snap = await db.collection('registros_diarios').get();
+            const total = snap.size;
+            let borrados = 0;
+            const batchSize = 400;
+            const docs = snap.docs;
+            for (let i = 0; i < docs.length; i += batchSize) {
+                const batch = db.batch();
+                docs.slice(i, i + batchSize).forEach(d => batch.delete(d.ref));
+                await batch.commit();
+                borrados += Math.min(batchSize, docs.length - i);
+                setProgress(2 + (borrados / Math.max(total,1)) * 38, `Borrando ${borrados}/${total}...`);
+            }
+            // Borrar también el documento de estructura
+            await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).delete();
+        }
+
+        setProgress(45, 'Importando estructura...');
+
+        // 2. Importar estructura de ciudades
+        if (respaldoPendiente.estructura && respaldoPendiente.estructura.ciudades) {
+            await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).set(respaldoPendiente.estructura);
+        }
+
+        setProgress(55, 'Importando registros diarios...');
+
+        // 3. Importar registros diarios en batches
+        const registros = respaldoPendiente.registrosDiarios || [];
+        const batchSize = 400;
+        const totalReg = registros.length;
+        let importados = 0;
+
+        if (totalReg === 0) {
+            setProgress(100, '✅ Completado');
+        } else {
+            for (let i = 0; i < registros.length; i += batchSize) {
+                const batch = db.batch();
+                const chunk = registros.slice(i, i + batchSize);
+                chunk.forEach(reg => {
+                    const id = reg.id || generarIdDoc(reg.anio, reg.ciudad, reg.centro, reg.mes);
+                    const { id: _, ...data } = reg; // quitamos el id del cuerpo
+                    batch.set(db.collection('registros_diarios').doc(id), data);
+                });
+                await batch.commit();
+                importados += chunk.length;
+                setProgress(55 + (importados / totalReg) * 45, `Importando ${importados}/${totalReg}...`);
+            }
+        }
+
+        setProgress(100, '✅ Completado');
+
+        // Recargar estructura en memoria y selects
+        await cargarEstructuraDesdeFirestore();
+        llenarTodosLosSelects();
+
+        mostrarMsg('backup-msg', `✅ Importación completada (${modoTexto}). ${totalReg} registros procesados.`, 'ok');
+
+        setTimeout(() => {
+            progressBar.classList.remove('active');
+            cancelarImportacion();
+        }, 2000);
+
+    } catch (e) {
+        console.error(e);
+        mostrarMsg('backup-msg', '❌ Error al importar: ' + e.message, 'err');
+        progressBar.classList.remove('active');
+        actions.style.display = 'flex';
     }
 }
 

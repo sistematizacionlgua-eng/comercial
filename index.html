@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestión Comercial - Firebase</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <style>
@@ -27,6 +28,8 @@
         button.danger:hover { background: #e74c3c; }
         button.success { background: #27ae60; }
         button.success:hover { background: #2ecc71; }
+        button.import { background: #6a1b9a; }
+        button.import:hover { background: #8e24aa; }
         button.small { padding: 4px 10px; font-size: 0.8rem; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.9rem; }
@@ -60,6 +63,8 @@
         .progress-bar.active { display: block; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, #1e3c72, #2a4d8f); width: 0%; transition: width 0.2s; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; font-weight: 600; }
         .backup-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+        .hidden { display: none !important; }
+        .import-hint { font-size: 0.85rem; color: #555; margin-top: 6px; }
     </style>
 </head>
 <body>
@@ -192,6 +197,9 @@
     </div>
 </div>
 
+<!-- Input oculto para Excel -->
+<input type="file" id="excel-import" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="hidden" onchange="procesarExcel(event)">
+
 <script>
 // ==================== FIREBASE ====================
 const firebaseConfig = {
@@ -210,13 +218,22 @@ const MESES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO"
 const DIAS_SEMANA = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
 const COLECCION_ESTRUCTURA = 'estructura_ciudades';
 
+// Mapeo de columnas del Excel -> campos internos
+const EXCEL_COLUMN_MAP = {
+    'ventas':          ['vtas.nva', 'ventas', 'vtas', 'venta'],
+    'reconexiones':    ['reconex.', 'reconex', 'reconexiones', 'reconexion'],
+    'migraciones':     ['mig.', 'mig', 'migraciones', 'migracion'],
+    'clientesPerdidos':['c.per.', 'c.per', 'cper', 'clientes perdidos', 'clientesperdidos'],
+    'crecimiento':     ['crecimiento', 'crec.', 'crec']
+};
+
 // ==================== ESTADO GLOBAL ====================
 let chartDiariaInstance = null;
 let chartMetaInstance = null;
 let datosActuales = null;
 let idDocumentoActual = null;
 let estructura = [];
-let respaldoPendiente = null; // Guarda el JSON parseado listo para importar
+let respaldoPendiente = null;
 
 // ==================== NAVEGACIÓN PESTAÑAS ====================
 document.querySelectorAll('.tab').forEach(tab => {
@@ -250,6 +267,15 @@ function timestampParaArchivo() {
     const d = new Date();
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
+}
+function normalizarTexto(s) {
+    return String(s == null ? '' : s).trim().toLowerCase();
+}
+function aNumero(v) {
+    if (v === null || v === undefined || v === '') return 0;
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    const n = parseFloat(String(v).replace(/,/g, '').trim());
+    return isNaN(n) ? 0 : n;
 }
 
 // ==================== FIRESTORE: ESTRUCTURA ====================
@@ -650,8 +676,10 @@ function renderizarTablaEditable() {
     html += `<div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="success" onclick="agregarFila()">➕ Agregar Fila</button>
         <button onclick="guardarTodo()">💾 Guardar Todos los Cambios</button>
+        <button class="import" onclick="abrirSelectorExcel()">📥 Importar Datos desde Excel</button>
         <button class="danger" onclick="eliminarMes()">🗑️ Eliminar Mes Completo</button>
-    </div>`;
+    </div>
+    <div class="import-hint">El Excel debe contener columnas: <strong>Dia</strong>, <strong>Vtas.Nva</strong>, <strong>Reconex.</strong>, <strong>Mig.</strong>, <strong>C.Per.</strong>, <strong>Crecimiento</strong>. Las celdas vacías se toman como 0.</div>`;
 
     document.getElementById('add-content').innerHTML = html;
 }
@@ -731,16 +759,155 @@ async function eliminarMes() {
     }
 }
 
+// ==================== IMPORTAR DESDE EXCEL ====================
+function abrirSelectorExcel() {
+    if (!datosActuales) {
+        alert('Primero carga una tabla con el botón "Cargar Tabla".');
+        return;
+    }
+    const input = document.getElementById('excel-import');
+    input.value = ''; // permite volver a subir el mismo archivo
+    input.click();
+}
+
+function procesarExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!datosActuales) {
+        mostrarMsg('add-msg', '❌ Debes cargar primero una tabla antes de importar Excel.', 'err');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+
+            // Tomar la primera hoja (o la llamada "Export" si existe)
+            let hojaNombre = workbook.SheetNames[0];
+            if (workbook.SheetNames.includes('Export')) hojaNombre = 'Export';
+            const hoja = workbook.Sheets[hojaNombre];
+
+            // Convertir a matriz de arrays (con cabeceras como primera fila)
+            const filas = XLSX.utils.sheet_to_json(hoja, { header: 1, defval: '' });
+            if (!filas || filas.length < 2) {
+                mostrarMsg('add-msg', '❌ El archivo no contiene datos suficientes.', 'err');
+                return;
+            }
+
+            // Detectar cabeceras en la primera fila no vacía
+            let headerRowIdx = 0;
+            for (let i = 0; i < filas.length; i++) {
+                const filaNorm = filas[i].map(c => normalizarTexto(c));
+                if (filaNorm.some(c => c.includes('dia') || c.includes('día') || c.includes('vtas') || c.includes('crec'))) {
+                    headerRowIdx = i;
+                    break;
+                }
+            }
+            const headers = filas[headerRowIdx].map(h => normalizarTexto(h));
+
+            // Localizar índices de columnas
+            const idxDia = headers.findIndex(h => h === 'dia' || h === 'día' || h === 'day');
+            if (idxDia === -1) {
+                mostrarMsg('add-msg', '❌ No se encontró la columna "Dia" en el Excel.', 'err');
+                return;
+            }
+
+            const idxPorCampo = {};
+            Object.keys(EXCEL_COLUMN_MAP).forEach(campo => {
+                const variantes = EXCEL_COLUMN_MAP[campo];
+                const idx = headers.findIndex(h => variantes.includes(h));
+                if (idx !== -1) idxPorCampo[campo] = idx;
+            });
+
+            if (Object.keys(idxPorCampo).length === 0) {
+                mostrarMsg('add-msg', '❌ No se reconocieron columnas de datos (Vtas.Nva, Reconex., Mig., C.Per., Crecimiento).', 'err');
+                return;
+            }
+
+            const { anio, mesIndex } = datosActuales;
+            const maxDias = getDiasDelMes(anio, mesIndex);
+            let actualizadas = 0, agregadas = 0, ignoradas = 0;
+
+            // Procesar cada fila de datos
+            for (let i = headerRowIdx + 1; i < filas.length; i++) {
+                const fila = filas[i];
+                if (!fila || fila.length === 0) continue;
+
+                const diaRaw = fila[idxDia];
+                const dia = parseInt(aNumero(diaRaw), 10);
+                if (!dia || dia < 1 || dia > maxDias) { ignoradas++; continue; }
+
+                // Construir registro con valores (vacíos -> 0)
+                const valores = {
+                    ventas: 0, reconexiones: 0, migraciones: 0, clientesPerdidos: 0, crecimiento: 0
+                };
+                Object.keys(idxPorCampo).forEach(campo => {
+                    valores[campo] = aNumero(fila[idxPorCampo[campo]]);
+                });
+
+                // Buscar si ya existe registro con esa fecha
+                const idxExistente = datosActuales.registros.findIndex(r => parseInt(r.fecha, 10) === dia);
+
+                if (idxExistente !== -1) {
+                    // Actualizar solo los campos presentes en el Excel
+                    const reg = datosActuales.registros[idxExistente];
+                    Object.keys(idxPorCampo).forEach(campo => {
+                        reg[campo] = valores[campo];
+                    });
+                    actualizadas++;
+                } else {
+                    // Agregar nuevo registro en orden por día
+                    const diaSemana = getNombreDia(anio, mesIndex, dia);
+                    const nuevo = {
+                        diaSemana,
+                        fecha: dia,
+                        ventas: valores.ventas,
+                        reconexiones: valores.reconexiones,
+                        migraciones: valores.migraciones,
+                        clientesPerdidos: valores.clientesPerdidos,
+                        crecimiento: valores.crecimiento,
+                        corte: false
+                    };
+                    // Insertar ordenado por fecha
+                    let insertado = false;
+                    for (let j = 0; j < datosActuales.registros.length; j++) {
+                        if (parseInt(datosActuales.registros[j].fecha, 10) > dia) {
+                            datosActuales.registros.splice(j, 0, nuevo);
+                            insertado = true;
+                            break;
+                        }
+                    }
+                    if (!insertado) datosActuales.registros.push(nuevo);
+                    agregadas++;
+                }
+            }
+
+            // Reordenar por fecha ascendente
+            datosActuales.registros.sort((a, b) => parseInt(a.fecha, 10) - parseInt(b.fecha, 10));
+
+            // Guardar automáticamente en Firestore
+            guardarTodo().then(() => {
+                mostrarMsg('add-msg', `✅ Excel importado: ${actualizadas} filas actualizadas, ${agregadas} agregadas${ignoradas ? `, ${ignoradas} ignoradas` : ''}.`, 'ok');
+            });
+
+        } catch (err) {
+            console.error(err);
+            mostrarMsg('add-msg', '❌ Error al leer el Excel: ' + err.message, 'err');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
 // ==================== PESTAÑA BASE DE DATOS: EXPORTAR ====================
 async function exportarRespaldo() {
     const info = document.getElementById('export-info');
     info.textContent = '⏳ Recopilando información...';
     try {
-        // 1. Estructura
         const estructuraDoc = await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).get();
         const estructuraData = estructuraDoc.exists ? estructuraDoc.data() : { ciudades: [] };
 
-        // 2. Todos los registros diarios
         const snapshot = await db.collection('registros_diarios').get();
         const registros = [];
         snapshot.forEach(doc => {
@@ -793,7 +960,6 @@ function prepararImportacion(event) {
     reader.onload = (e) => {
         try {
             const data = JSON.parse(e.target.result);
-            // Validaciones mínimas
             if (!data || typeof data !== 'object') throw new Error('Formato inválido.');
             if (!data.estructura && !data.registrosDiarios) throw new Error('El archivo no contiene datos reconocibles.');
 
@@ -853,7 +1019,6 @@ async function ejecutarImportacion(modo) {
     };
 
     try {
-        // 1. Si es reemplazar, borrar todo primero
         if (modo === 'reemplazar') {
             setProgress(2, 'Borrando datos existentes...');
             const snap = await db.collection('registros_diarios').get();
@@ -868,20 +1033,17 @@ async function ejecutarImportacion(modo) {
                 borrados += Math.min(batchSize, docs.length - i);
                 setProgress(2 + (borrados / Math.max(total,1)) * 38, `Borrando ${borrados}/${total}...`);
             }
-            // Borrar también el documento de estructura
             await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).delete();
         }
 
         setProgress(45, 'Importando estructura...');
 
-        // 2. Importar estructura de ciudades
         if (respaldoPendiente.estructura && respaldoPendiente.estructura.ciudades) {
             await db.collection('configuracion').doc(COLECCION_ESTRUCTURA).set(respaldoPendiente.estructura);
         }
 
         setProgress(55, 'Importando registros diarios...');
 
-        // 3. Importar registros diarios en batches
         const registros = respaldoPendiente.registrosDiarios || [];
         const batchSize = 400;
         const totalReg = registros.length;
@@ -895,7 +1057,7 @@ async function ejecutarImportacion(modo) {
                 const chunk = registros.slice(i, i + batchSize);
                 chunk.forEach(reg => {
                     const id = reg.id || generarIdDoc(reg.anio, reg.ciudad, reg.centro, reg.mes);
-                    const { id: _, ...data } = reg; // quitamos el id del cuerpo
+                    const { id: _, ...data } = reg;
                     batch.set(db.collection('registros_diarios').doc(id), data);
                 });
                 await batch.commit();
@@ -906,7 +1068,6 @@ async function ejecutarImportacion(modo) {
 
         setProgress(100, '✅ Completado');
 
-        // Recargar estructura en memoria y selects
         await cargarEstructuraDesdeFirestore();
         llenarTodosLosSelects();
 
